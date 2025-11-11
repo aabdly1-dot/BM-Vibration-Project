@@ -31,7 +31,7 @@ The goal of this iteration is to get all tools working, collect initial data, an
 ### Phase 1.1: Project Kickoff & Setup (All Students)
 * [ ] **Kickoff:** Align on project goals and this plan.
 * [ ] **Tools:** Set up the shared GitHub repository.
-* [ ] **Hardware:** Receive and test all equipment: Movesense IMU sensors, Apple Computer, and the 3 vibrating tools.
+* [ ] **Hardware:** Receive and test all equipment: Movesense IMU sensors, Apple Computer, and the three vibrating tools (the dataset).
 
 ### Phase 1.2: Research & Ethics (All Students)
 * [ ] **Team B (Signal - Ibrahim & Roman):** Read the pilot study and previous PCC report to understand the "transfer function" (grip vs. back of hand) and existing algorithms.
