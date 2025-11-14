@@ -1,4 +1,4 @@
-#The Summay of fridag meeting and the whole transcripte
+# The Summay of fridag meeting and the whole transcripte
 
 Chapter 1: Signal Processing & Vibration Detection
 The group discussed methods for analyzing accelerometer data to distinguish between human motion (like walking) and tool vibration.
@@ -46,7 +46,7 @@ Next Steps: The goal for the next meeting is to present a first version of these
 
 
 
-#transcripte
+# transcripte
 
 
 "Uh, what have you been working on? What's your idea of moving ahead?
