@@ -6,13 +6,13 @@ import pandas as pd # You'll likely use pandas to load and handle your raw data
 # --- Project Constants (Adjust these values based on testing) ---
 # The Movesense sensor samples at 52Hz (approx), but let's assume a common rate for now.
 # NOTE: Replace '50.0' with the actual sampling rate (fs) of your Movesense sensor
-FS = 50.0  # Sampling Frequency (Hz). CHECK YOUR SENSOR'S RATE!
+FS = 50.0  # Sampling Frequency (Hz). CHECK YOUR SENSOR'S RATE! #TODO check what Fs was in each recording (833 Hz?) and try to align in order not to get aliasing effect in processing
 
 # Cutoff frequency (fc) determines what gets filtered out.
 # Gravity and walking are typically below 1 Hz. A cutoff of 0.5-1.5 Hz is common
 # to remove these low-frequency components.
 # Lower frequency = more noise passes. Higher frequency = tool vibration might be lost.
-CUTOFF_FREQ = 0.5  # Hz. Needs empirical testing on your 'noise_walking' data!
+CUTOFF_FREQ = 0.5  # Hz. Needs empirical testing on your 'noise_walking' data! #TODO first PSD or FFT walking dataset to understand the freq content
 
 # The order (N) of the filter. Higher order = sharper cutoff, but more computation/instability.
 # Order 4-10 is a good starting point for IIR filters.
@@ -39,7 +39,8 @@ def butter_highpass_filter(data, cutoff, fs, order):
     # Calculate the Nyquist frequency (half the sampling frequency)
     nyquist = 0.5 * fs
     # Normalize the cutoff frequency to the Nyquist frequency (0 to 1 range)
-    normalized_cutoff = cutoff / nyquist
+    normalized_cutoff = cutoff / nyquist # TODO undertand what is the cut-off frequency (the specific number), 
+    # adaptive cut-off might be good, but only after working with dataset (Power Spectrum Density, FFT, Welch FFT) and understanding the limits of freq for each tool or walking
     
     # 1. Design the filter (Get the coefficients B and A)
     # output='ba' returns numerator (b) and denominator (a) polynomials
@@ -84,7 +85,7 @@ def filter_triaxial_data(df_raw, cutoff=CUTOFF_FREQ, fs=FS, order=ORDER):
     return df_filtered
 
 
-if __name__ == '__main__':
+if __name__ == '__main__': #TODO find or define the main orchestrating file
     # --- Example Usage (In a real scenario, this loads files from 01_data_collection) ---
     
     # Dummy data: Tool vibration (high freq) + Walking (low freq) + Gravity (DC offset)

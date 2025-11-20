@@ -2,6 +2,10 @@ import pandas as pd
 import numpy as np
 import os
 
+#TODO rewite the data loader so it can:
+# 1. read .json files 
+# 2. parse the specific JSON format returned by Movesense Flash sensor (dictionary-like thingy with timestamp and x,y,z keys)
+# 3. Convert it to the DataFrame format (accel_x, accel_y, accel_z) used by other files in processing pipeline
 # ==============================================================================
 # DATA LOADER UTILITY: data_loader.py
 # Purpose: Load, merge, and organize raw triaxial sensor data and activity labels
