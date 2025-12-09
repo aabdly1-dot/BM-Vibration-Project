@@ -1,7 +1,6 @@
 {
   "rms_threshold": 3.0,
-  "centroid_min": 50.0,
-  "hf_ratio_min": 0.3,
+  "centroid_min": 45.0,
   "flatness_max": 0.4,
   "crest_factor_min": 2.5,
   "peak_prominence_min": 3.5,

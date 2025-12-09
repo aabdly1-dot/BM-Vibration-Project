@@ -1,0 +1,23 @@
+{
+  "accuracy": 0.9972972972972973,
+  "precision": 1.0,
+  "recall": 0.9970149253731343,
+  "f1_score": 0.9985052316890882,
+  "specificity": 1.0,
+  "confusion_matrix": {
+    "TP": 334,
+    "TN": 35,
+    "FP": 0,
+    "FN": 1
+  },
+  "total_windows": 370,
+  "thresholds_used": {
+    "rms_threshold": 3.0,
+    "centroid_min": 45.0,
+    "flatness_max": 0.4,
+    "crest_factor_min": 2.5,
+    "peak_prominence_min": 3.5,
+    "consecutive_samples": 5,
+    "tool_profiles": {}
+  }
+}

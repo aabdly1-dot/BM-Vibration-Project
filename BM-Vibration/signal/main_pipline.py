@@ -179,7 +179,6 @@ def run_training(data_files=None):
     print(f"  Current thresholds:")
     print(f"    • RMS threshold: {classifier.thresholds['rms_threshold']}")
     print(f"    • Centroid min: {classifier.thresholds['centroid_min']} Hz")
-    print(f"    • HF ratio min: {classifier.thresholds['hf_ratio_min']}")
     print(f"    • Flatness max: {classifier.thresholds['flatness_max']}")
     
     # Validate on loaded data (without saving)
@@ -316,10 +315,9 @@ def visualize_classification(data_files=None, save_plots=True):
             # Extract feature arrays
             rms_values = [f['rms'] for f in all_features]
             centroid_values = [f['spectral_centroid'] for f in all_features]
-            hf_ratio_values = [f['hf_energy_ratio'] for f in all_features]
             
-            # Create figure with 4 subplots
-            fig, axes = plt.subplots(4, 1, figsize=(14, 12), sharex=True)
+            # Create figure with 3 subplots
+            fig, axes = plt.subplots(3, 1, figsize=(14, 10), sharex=True)
             fig.suptitle(f'Automatic Classification: {folder_name}/{filename}\n'
                         f'Fs={fs:.1f}Hz | {len(windows)} windows | Expected: {expected_label}',
                         fontsize=12, fontweight='bold')
@@ -380,17 +378,10 @@ def visualize_classification(data_files=None, save_plots=True):
             lines2, labels2 = ax3_cent.get_legend_handles_labels()
             ax3.legend(lines1 + lines2, labels1 + labels2, loc='upper right', fontsize=8)
             
-            # --- Subplot 4: HF Energy Ratio ---
-            ax4 = axes[3]
-            ax4.plot(window_times, hf_ratio_values, 'g-^', markersize=3, linewidth=1)
-            ax4.axhline(y=classifier.thresholds['hf_ratio_min'], color='g', linestyle='--', 
-                       alpha=0.5, label=f"HF Ratio thresh ({classifier.thresholds['hf_ratio_min']:.2f})")
-            ax4.set_ylabel('HF Energy Ratio')
+            # --- Subplot 4 removed (HF ratio) ---
+            ax4 = axes[2]
             ax4.set_xlabel('Time (seconds)')
-            ax4.set_title('High-Frequency Energy Ratio (>50Hz)')
-            ax4.legend(loc='upper right')
-            ax4.grid(True, alpha=0.3)
-            ax4.set_ylim(0, 1)
+            ax4.axis('off')
             
             plt.tight_layout()
             
@@ -534,7 +525,6 @@ def run_calibration(tool_name):
         thresholds = {
             'rms_threshold': 2.0,
             'centroid_min': 40.0,
-            'hf_ratio_min': 0.25,
             'flatness_max': 0.5,
             'crest_factor_min': 2.0,
             'peak_prominence_min': 3.0,
@@ -556,6 +546,288 @@ def run_calibration(tool_name):
     print(f"   • HF Energy Ratio: {profile['features']['hf_energy_ratio']['mean']:.3f}")
     
     return True
+
+
+def classify_feature_csv(csv_path, save_results=True, visualize=True):
+    """
+    Classify pre-extracted feature dataset using threshold rules.
+    
+    This function handles CSV files that already contain computed features
+    (RMS, Spectral Centroid, etc.) and applies the threshold-based classification
+    rules to determine ACTIVE/NON-ACTIVE status.
+    
+    Parameters:
+    - csv_path (str): Path to the CSV file with pre-extracted features.
+    - save_results (bool): Whether to save classified CSV and metrics.
+    - visualize (bool): Whether to show visualization plots.
+    
+    Expected CSV columns:
+    - rms, spectral_centroid, spectral_bandwidth, spectral_flatness
+    - crest_factor, hf_energy_ratio, peak_prominence
+    - window_id, label (ground truth tool name)
+    
+    Label mapping (ground truth):
+    - ACTIVE (ON): plsh, drill, pmf, psm (all tools)
+    - NON-ACTIVE (OFF): walking
+    """
+    print_section("CSV FEATURE DATASET CLASSIFICATION")
+    
+    import pandas as pd
+    import numpy as np
+    from onoff_model import OnOffClassifier
+    
+    # Label mapping: tools → ACTIVE, walking → NON-ACTIVE
+    LABEL_MAP = {
+        'plsh': True,    # Tool: ACTIVE
+        'drill': True,   # Tool: ACTIVE
+        'pmf': True,     # Tool: ACTIVE
+        'psm': True,     # Tool: ACTIVE
+        'walking': False # Walking: NON-ACTIVE
+    }
+    
+    # Load CSV
+    print(f"[LOAD] Loading CSV: {csv_path}")
+    if not os.path.exists(csv_path):
+        print(f"[ERROR] File not found: {csv_path}")
+        return False
+    
+    df = pd.read_csv(csv_path)
+    print(f"   Loaded {len(df)} windows")
+    print(f"   Columns: {list(df.columns)}")
+    
+    # Check required columns
+    required_cols = ['rms', 'spectral_centroid', 'label']
+    missing_cols = [c for c in required_cols if c not in df.columns]
+    if missing_cols:
+        print(f"[ERROR] Missing required columns: {missing_cols}")
+        return False
+    
+    # Show label distribution
+    print(f"\n[INFO] Label distribution:")
+    for label, count in df['label'].value_counts().items():
+        gt = "ACTIVE" if LABEL_MAP.get(label, False) else "NON-ACTIVE"
+        print(f"   * {label}: {count} windows -> {gt}")
+    
+    # Initialize classifier (loads thresholds from file)
+    classifier = OnOffClassifier()
+    print(f"\n[INFO] Using thresholds:")
+    print(f"   * RMS threshold: {classifier.thresholds['rms_threshold']}")
+    print(f"   * Centroid min: {classifier.thresholds['centroid_min']} Hz")
+    print(f"   * Flatness max: {classifier.thresholds['flatness_max']}")
+    
+    # Classify each window using pre-extracted features
+    print(f"\n[CLASSIFY] Applying threshold rules to {len(df)} windows...")
+    predictions = []
+    
+    for idx, row in df.iterrows():
+        features = {
+            'rms': row['rms'],
+            'spectral_centroid': row['spectral_centroid'],
+            'spectral_flatness': row.get('spectral_flatness', 0.5),
+            'crest_factor': row.get('crest_factor', 1.0),
+            'peak_prominence': row.get('peak_prominence', 1.0)
+        }
+        is_active = classifier.predict_from_features(features, verbose=False)
+        predictions.append(is_active)
+    
+    df['predicted_active'] = predictions
+    df['predicted_label'] = df['predicted_active'].apply(lambda x: 'ACTIVE' if x else 'NON-ACTIVE')
+    
+    # Add ground truth column
+    df['ground_truth_active'] = df['label'].apply(lambda x: LABEL_MAP.get(x, False))
+    df['ground_truth_label'] = df['ground_truth_active'].apply(lambda x: 'ACTIVE' if x else 'NON-ACTIVE')
+    
+    # Calculate metrics
+    print(f"\n[METRICS] Classification Results:")
+    
+    y_true = df['ground_truth_active'].values
+    y_pred = df['predicted_active'].values
+    
+    # Confusion matrix components
+    TP = np.sum((y_true == True) & (y_pred == True))
+    TN = np.sum((y_true == False) & (y_pred == False))
+    FP = np.sum((y_true == False) & (y_pred == True))
+    FN = np.sum((y_true == True) & (y_pred == False))
+    
+    accuracy = (TP + TN) / len(y_true) if len(y_true) > 0 else 0
+    precision = TP / (TP + FP) if (TP + FP) > 0 else 0
+    recall = TP / (TP + FN) if (TP + FN) > 0 else 0
+    f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
+    specificity = TN / (TN + FP) if (TN + FP) > 0 else 0
+    
+    print(f"   Confusion Matrix:")
+    print(f"                    Predicted")
+    print(f"                    ACTIVE  NON-ACTIVE")
+    print(f"   Actual ACTIVE    {TP:5d}   {FN:5d}")
+    print(f"   Actual NON-ACTIVE{FP:5d}   {TN:5d}")
+    print(f"")
+    print(f"   Accuracy:    {accuracy*100:.2f}%")
+    print(f"   Precision:   {precision*100:.2f}%")
+    print(f"   Recall:      {recall*100:.2f}%")
+    print(f"   F1-Score:    {f1*100:.2f}%")
+    print(f"   Specificity: {specificity*100:.2f}%")
+    
+    # Per-tool accuracy
+    print(f"\n[STATS] Per-Tool Classification:")
+    for label in df['label'].unique():
+        tool_df = df[df['label'] == label]
+        tool_gt = LABEL_MAP.get(label, False)
+        tool_correct = sum(tool_df['predicted_active'] == tool_gt)
+        tool_acc = 100 * tool_correct / len(tool_df) if len(tool_df) > 0 else 0
+        expected = "ACTIVE" if tool_gt else "NON-ACTIVE"
+        print(f"   * {label}: {tool_acc:.1f}% correct ({tool_correct}/{len(tool_df)}) - Expected: {expected}")
+    
+    # Save results
+    if save_results:
+        results_dir = os.path.join(script_dir, '04_validation', 'results')
+        os.makedirs(results_dir, exist_ok=True)
+        
+        # Save classified CSV
+        output_csv = os.path.join(results_dir, 'tools_dataset_classified.csv')
+        df.to_csv(output_csv, index=False)
+        print(f"\n[SAVED] Classified CSV: {output_csv}")
+        
+        # Save metrics to JSON
+        import json
+        metrics = {
+            'accuracy': accuracy,
+            'precision': precision,
+            'recall': recall,
+            'f1_score': f1,
+            'specificity': specificity,
+            'confusion_matrix': {'TP': int(TP), 'TN': int(TN), 'FP': int(FP), 'FN': int(FN)},
+            'total_windows': len(df),
+            'thresholds_used': classifier.thresholds
+        }
+        metrics_file = os.path.join(results_dir, 'tools_dataset_metrics.json')
+        with open(metrics_file, 'w') as f:
+            json.dump(metrics, f, indent=2)
+        print(f"[SAVED] Metrics JSON: {metrics_file}")
+    
+    # Visualize
+    if visualize:
+        visualize_csv_classification(df, classifier, csv_path, save_results)
+    
+    print(f"\n[OK] CSV classification complete!")
+    return True
+
+
+def visualize_csv_classification(df, classifier, csv_path, save_plots=True):
+    """
+    Visualize classification results from a pre-extracted feature CSV.
+    
+    Creates a 3-subplot figure showing:
+    - RMS values per window with threshold line
+    - Classification bars (predicted vs ground truth)
+    - Spectral Centroid values with threshold line
+    - HF Energy Ratio values with threshold line
+    
+    Parameters:
+    - df (pd.DataFrame): DataFrame with features and predictions.
+    - classifier (OnOffClassifier): Classifier with thresholds.
+    - csv_path (str): Original CSV path (for title).
+    - save_plots (bool): Whether to save the plot.
+    """
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Patch
+    import numpy as np
+    
+    print(f"\n[PLOT] Generating visualization...")
+    
+    # Group data by tool label for clearer visualization
+    labels = df['label'].unique()
+    label_boundaries = []
+    current_idx = 0
+    
+    for label in labels:
+        count = len(df[df['label'] == label])
+        label_boundaries.append((current_idx, current_idx + count, label))
+        current_idx += count
+    
+    # Window indices
+    window_ids = np.arange(len(df))
+    
+    # Create figure
+    fig, axes = plt.subplots(3, 1, figsize=(16, 12), sharex=True)
+    fig.suptitle(f'CSV Feature Classification: {os.path.basename(csv_path)}\n'
+                f'{len(df)} windows | Thresholds: RMS>{classifier.thresholds["rms_threshold"]:.1f}, '
+                f'Centroid>{classifier.thresholds["centroid_min"]:.0f}Hz, '
+                f'Flatness<{classifier.thresholds["flatness_max"]:.2f}',
+                fontsize=12, fontweight='bold')
+    
+    # --- Subplot 1: RMS Values ---
+    ax1 = axes[0]
+    ax1.plot(window_ids, df['rms'].values, 'b-', linewidth=0.8, alpha=0.8)
+    ax1.axhline(y=classifier.thresholds['rms_threshold'], color='r', linestyle='--', 
+               linewidth=2, label=f"Threshold ({classifier.thresholds['rms_threshold']:.1f})")
+    ax1.set_ylabel('RMS (m/s²)')
+    ax1.set_title('RMS Values per Window')
+    ax1.legend(loc='upper right')
+    ax1.grid(True, alpha=0.3)
+    
+    # Add tool label separators
+    for start, end, label in label_boundaries:
+        ax1.axvline(x=start, color='gray', linestyle=':', alpha=0.5)
+        ax1.text((start + end) / 2, ax1.get_ylim()[1] * 0.95, label, 
+                ha='center', va='top', fontsize=9, fontweight='bold')
+    
+    # --- Subplot 2: Classification Labels (Predicted vs Ground Truth) ---
+    ax2 = axes[1]
+    
+    # Plot predicted labels (top row)
+    for i, pred in enumerate(df['predicted_active']):
+        color = '#2ecc71' if pred else '#e74c3c'  # Green=ACTIVE, Red=NON-ACTIVE
+        ax2.barh(0.7, 1, left=i, height=0.4, color=color, alpha=0.8)
+    
+    # Plot ground truth labels (bottom row)
+    for i, gt in enumerate(df['ground_truth_active']):
+        color = '#27ae60' if gt else '#c0392b'  # Darker green/red for ground truth
+        ax2.barh(0.2, 1, left=i, height=0.4, color=color, alpha=0.8)
+    
+    ax2.set_ylim(0, 1)
+    ax2.set_yticks([0.2, 0.7])
+    ax2.set_yticklabels(['Ground Truth', 'Predicted'])
+    ax2.set_title('Classification: ACTIVE (green) / NON-ACTIVE (red)')
+    
+    # Add legend
+    legend_elements = [
+        Patch(facecolor='#2ecc71', alpha=0.8, label='Predicted ACTIVE'),
+        Patch(facecolor='#e74c3c', alpha=0.8, label='Predicted NON-ACTIVE'),
+        Patch(facecolor='#27ae60', alpha=0.8, label='GT ACTIVE'),
+        Patch(facecolor='#c0392b', alpha=0.8, label='GT NON-ACTIVE')
+    ]
+    ax2.legend(handles=legend_elements, loc='upper right', ncol=2, fontsize=8)
+    
+    # Add tool separators
+    for start, end, label in label_boundaries:
+        ax2.axvline(x=start, color='gray', linestyle=':', alpha=0.5)
+    
+    # --- Subplot 3: Spectral Centroid ---
+    ax3 = axes[2]
+    ax3.plot(window_ids, df['spectral_centroid'].values, 'r-', linewidth=0.8, alpha=0.8)
+    ax3.axhline(y=classifier.thresholds['centroid_min'], color='b', linestyle='--', 
+               linewidth=2, label=f"Threshold ({classifier.thresholds['centroid_min']:.0f} Hz)")
+    ax3.set_ylabel('Spectral Centroid (Hz)')
+    ax3.set_title('Spectral Centroid per Window')
+    ax3.legend(loc='upper right')
+    ax3.grid(True, alpha=0.3)
+    
+    # Add tool separators
+    for start, end, label in label_boundaries:
+        ax3.axvline(x=start, color='gray', linestyle=':', alpha=0.5)
+    
+    plt.tight_layout()
+    
+    # Save plot
+    if save_plots:
+        results_dir = os.path.join(script_dir, '04_validation', 'results', 'visualizations')
+        os.makedirs(results_dir, exist_ok=True)
+        output_path = os.path.join(results_dir, 'tools_dataset_classification.png')
+        plt.savefig(output_path, dpi=150, bbox_inches='tight')
+        print(f"[SAVED] Visualization: {output_path}")
+    
+    plt.show()
+    print(f"[OK] Visualization displayed!")
 
 
 def generate_final_report(metrics, start_time):
@@ -603,6 +875,7 @@ Examples:
   python main_pipline.py --skip-training     # Use existing model
   python main_pipline.py --validation-only   # Only run validation
   python main_pipline.py --calibrate-tool grinder  # Calibrate new tool
+  python main_pipline.py --classify-csv path/to/features.csv  # Classify CSV with pre-extracted features
         """
     )
     parser.add_argument('--skip-preprocessing', action='store_true', 
@@ -617,6 +890,8 @@ Examples:
                        help='Only run visualization (skip training and validation)')
     parser.add_argument('--calibrate-tool', type=str, metavar='TOOL_NAME',
                        help='Calibrate thresholds for a new tool (e.g., grinder, saw)')
+    parser.add_argument('--classify-csv', type=str, metavar='CSV_PATH',
+                       help='Classify pre-extracted feature CSV dataset')
     
     args = parser.parse_args()
     
@@ -637,6 +912,26 @@ Examples:
                 return 1
         except Exception as e:
             print(f"\n[ERROR] Calibration failed: {e}")
+            import traceback
+            traceback.print_exc()
+            return 1
+    
+    # Handle CSV feature classification mode
+    if args.classify_csv:
+        print_banner("CSV FEATURE DATASET CLASSIFICATION")
+        print(f"Started: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"CSV File: {args.classify_csv}")
+        
+        try:
+            success = classify_feature_csv(args.classify_csv, save_results=True, visualize=True)
+            if success:
+                print_banner("CSV CLASSIFICATION COMPLETE")
+                return 0
+            else:
+                print_banner("CSV CLASSIFICATION FAILED")
+                return 1
+        except Exception as e:
+            print(f"\n[ERROR] CSV classification failed: {e}")
             import traceback
             traceback.print_exc()
             return 1

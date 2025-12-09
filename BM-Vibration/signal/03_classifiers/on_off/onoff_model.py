@@ -28,7 +28,6 @@ THRESHOLDS_FILE = os.path.join(os.path.dirname(__file__), 'thresholds.json')
 DEFAULT_THRESHOLDS = {
     "rms_threshold": 2.0,
     "centroid_min": 40.0,
-    "hf_ratio_min": 0.25,
     "flatness_max": 0.5,
     "crest_factor_min": 2.0,
     "peak_prominence_min": 3.0,
@@ -122,11 +121,11 @@ class RobustFeatureExtractor:
             return geometric_mean / arithmetic_mean
         return 0.0
     
-    def compute_hf_energy_ratio(self, freqs, magnitudes, cutoff=50.0):
+    # HF energy ratio retained for analysis but not used in classification rules
+    def compute_hf_energy_ratio(self, freqs, magnitudes, cutoff=60.0):
         """
-        Compute High-Frequency Energy Ratio = energy(f > cutoff) / total_energy
-        
-        Higher values indicate more energy in the tool vibration band (above cutoff Hz).
+        Compute High-Frequency Energy Ratio = energy(f > cutoff) / total_energy.
+        Not used for classification; kept for optional diagnostics.
         """
         total_energy = np.sum(magnitudes**2)
         if total_energy > 0:
@@ -203,7 +202,7 @@ class OnOffClassifier:
     and sampling frequencies.
     
     Classification Logic:
-    - ACTIVE (ON) if: centroid > min AND hf_ratio > min AND rms > threshold
+    - ACTIVE (ON) if: centroid > min AND rms > threshold
     - REST (OFF) otherwise
     - Warnings for anomalous signals (e.g., low-frequency high-energy tools)
     """
@@ -260,14 +259,13 @@ class OnOffClassifier:
         # Extract features
         features = self.extractor.extract_features(window_data)
         
-        # Apply threshold-based rules
+        # Apply threshold-based rules (HF ratio removed)
         rms_ok = features['rms'] > self.thresholds['rms_threshold']
         centroid_ok = features['spectral_centroid'] > self.thresholds['centroid_min']
-        hf_ratio_ok = features['hf_energy_ratio'] > self.thresholds['hf_ratio_min']
         flatness_ok = features['spectral_flatness'] < self.thresholds['flatness_max']
         
-        # Main classification: ACTIVE requires high energy in high-frequency band
-        is_active = rms_ok and centroid_ok and hf_ratio_ok
+        # Main classification
+        is_active = rms_ok and centroid_ok
         
         # Additional confidence checks
         crest_ok = features['crest_factor'] > self.thresholds['crest_factor_min']
@@ -281,15 +279,9 @@ class OnOffClassifier:
             if verbose:
                 print(f"WARNING: High RMS ({features['rms']:.2f}) but low centroid ({features['spectral_centroid']:.1f}Hz). Possible low-frequency tool.")
         
-        if not rms_ok and centroid_ok and hf_ratio_ok:
-            # Low energy but high-frequency content - tool spinning but not touching
-            warning = "IDLE_TOOL"
-            if verbose:
-                print(f"WARNING: Low RMS ({features['rms']:.2f}) but high centroid ({features['spectral_centroid']:.1f}Hz). Tool may be idling.")
-        
         if verbose:
             print(f"Features: RMS={features['rms']:.2f}, Centroid={features['spectral_centroid']:.1f}Hz, "
-                  f"HF_Ratio={features['hf_energy_ratio']:.2f}, Flatness={features['spectral_flatness']:.3f}")
+                  f"Flatness={features['spectral_flatness']:.3f}")
             print(f"Decision: {'ACTIVE (ON)' if is_active else 'REST (OFF)'}")
             return is_active, features, warning
         
@@ -323,6 +315,84 @@ class OnOffClassifier:
             return predictions, all_features
         return predictions
     
+    def predict_from_features(self, features_dict, verbose=False):
+        """
+        Predict if a window is ACTIVE based on pre-extracted features.
+        
+        Use this method when features are already computed (e.g., from CSV dataset).
+        No feature extraction needed - applies threshold rules directly.
+        
+        Parameters:
+        - features_dict (dict): Dictionary containing pre-extracted features:
+            - 'rms': Root Mean Square
+            - 'spectral_centroid': Spectral Centroid (Hz)
+            - 'hf_energy_ratio': High-Frequency Energy Ratio
+            - Optional: 'spectral_flatness', 'crest_factor', 'peak_prominence'
+        - verbose (bool): If True, print decision reasoning.
+        
+        Returns:
+        - bool: True = ACTIVE (ON), False = REST (OFF)
+        - str or None: Warning message for anomalous signals (if verbose)
+        """
+        # Extract required features with defaults for missing optional ones
+        rms = features_dict.get('rms', 0.0)
+        centroid = features_dict.get('spectral_centroid', 0.0)
+        flatness = features_dict.get('spectral_flatness', 0.5)
+        crest_factor = features_dict.get('crest_factor', 1.0)
+        peak_prominence = features_dict.get('peak_prominence', 1.0)
+        
+        # Apply threshold-based rules (HF ratio removed)
+        rms_ok = rms > self.thresholds['rms_threshold']
+        centroid_ok = centroid > self.thresholds['centroid_min']
+        
+        # Main classification
+        is_active = rms_ok and centroid_ok
+        
+        # Warnings for anomalous signals
+        warning = None
+        if rms_ok and not centroid_ok:
+            warning = "LOW_FREQ_TOOL"
+        elif not rms_ok and centroid_ok:
+            warning = "IDLE_TOOL"
+        
+        if verbose:
+            print(f"Features: RMS={rms:.2f}, Centroid={centroid:.1f}Hz, "
+                  f"Flatness={flatness:.3f}")
+            print(f"Thresholds: RMS>{self.thresholds['rms_threshold']:.1f}, "
+                  f"Centroid>{self.thresholds['centroid_min']:.0f}Hz")
+            print(f"Decision: {'ACTIVE (ON)' if is_active else 'REST (OFF)'}")
+            if warning:
+                print(f"Warning: {warning}")
+            return is_active, warning
+        
+        return is_active
+    
+    def predict_batch_from_features(self, features_list, verbose=False):
+        """
+        Predict labels for a batch of pre-extracted feature dictionaries.
+        
+        Parameters:
+        - features_list (list of dict): List of feature dictionaries.
+        - verbose (bool): If True, print progress.
+        
+        Returns:
+        - list of bool: True = ACTIVE, False = REST for each window.
+        """
+        predictions = []
+        warnings = []
+        
+        for i, features in enumerate(features_list):
+            if verbose:
+                is_active, warning = self.predict_from_features(features, verbose=False)
+                warnings.append(warning)
+            else:
+                is_active = self.predict_from_features(features, verbose=False)
+            predictions.append(is_active)
+        
+        if verbose:
+            return predictions, warnings
+        return predictions
+    
     def get_confidence(self, features):
         """
         Calculate confidence score for the prediction (0.0 to 1.0).
@@ -338,9 +408,6 @@ class OnOffClassifier:
         # Centroid score (normalized)
         centroid_score = min(features['spectral_centroid'] / (self.thresholds['centroid_min'] * 2), 1.0)
         scores.append(centroid_score)
-        
-        # HF ratio score
-        scores.append(features['hf_energy_ratio'])
         
         # Flatness score (inverted - lower is better)
         flatness_score = 1.0 - min(features['spectral_flatness'], 1.0)
@@ -374,12 +441,12 @@ def calibrate_threshold(training_data_on, training_data_off, fs=833.0):
     
     print("\n=== Feature Statistics ===")
     print("\nON (Tool Active) Data:")
-    for key in ['rms', 'spectral_centroid', 'hf_energy_ratio', 'spectral_flatness']:
+    for key in ['rms', 'spectral_centroid', 'spectral_flatness']:
         mean, std, min_v, max_v = get_stats(on_features, key)
         print(f"  {key}: mean={mean:.3f}, std={std:.3f}, range=[{min_v:.3f}, {max_v:.3f}]")
     
     print("\nOFF (Tool Inactive) Data:")
-    for key in ['rms', 'spectral_centroid', 'hf_energy_ratio', 'spectral_flatness']:
+    for key in ['rms', 'spectral_centroid', 'spectral_flatness']:
         mean, std, min_v, max_v = get_stats(off_features, key)
         print(f"  {key}: mean={mean:.3f}, std={std:.3f}, range=[{min_v:.3f}, {max_v:.3f}]")
     
@@ -393,10 +460,6 @@ def calibrate_threshold(training_data_on, training_data_off, fs=833.0):
     # Use lower bound of ON centroid with margin
     optimal_centroid = max(off_centroid_mean * 1.5, 40.0)
     
-    on_hf_mean = np.mean([f['hf_energy_ratio'] for f in on_features])
-    off_hf_mean = np.mean([f['hf_energy_ratio'] for f in off_features])
-    optimal_hf_ratio = (on_hf_mean + off_hf_mean) / 2.0
-    
     on_flatness_mean = np.mean([f['spectral_flatness'] for f in on_features])
     off_flatness_mean = np.mean([f['spectral_flatness'] for f in off_features])
     optimal_flatness = (on_flatness_mean + off_flatness_mean) / 2.0
@@ -404,7 +467,6 @@ def calibrate_threshold(training_data_on, training_data_off, fs=833.0):
     optimal_thresholds = {
         'rms_threshold': optimal_rms,
         'centroid_min': optimal_centroid,
-        'hf_ratio_min': optimal_hf_ratio,
         'flatness_max': optimal_flatness,
         'crest_factor_min': 2.0,
         'peak_prominence_min': 3.0,
@@ -415,7 +477,6 @@ def calibrate_threshold(training_data_on, training_data_off, fs=833.0):
     print("\n=== Optimal Thresholds ===")
     print(f"  RMS threshold: {optimal_rms:.3f}")
     print(f"  Centroid min: {optimal_centroid:.1f} Hz")
-    print(f"  HF ratio min: {optimal_hf_ratio:.3f}")
     print(f"  Flatness max: {optimal_flatness:.3f}")
     
     return optimal_thresholds
