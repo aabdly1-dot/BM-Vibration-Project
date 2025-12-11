@@ -69,9 +69,10 @@ BM-Vibration/
 │   │              │    │                  │    │                 │                   │
 │   │ • tool_drill │    │ Bandpass Filter  │    │ • RMS           │                   │
 │   │ • tool_grind │    │ (40-400 Hz)      │    │ • Centroid      │                   │
-│   │ • noise_walk │    │                  │    │ • HF Ratio      │                   │
+│   │ • noise_walk │    │                  │    │ • Spectral BW   │                   │
 │   │ • noise_stair│    │ Segmentation     │    │ • Flatness      │                   │
-│   └──────────────┘    │ (64 samples,50%) │    │ • Crest Factor  │                   │
+│   │   (not used)│    │ (64 samples,50%) │    │ • Crest Factor  │                   │
+│   └──────────────┘    │                  │    │ • Peak Prom.    │                   │
 │                       └──────────────────┘    └─────────────────┘                   │
 │                                │                       │                            │
 │                                │                       │                            │
@@ -80,7 +81,6 @@ BM-Vibration/
 │                        │           VALIDATION (04_)            │                    │
 │                        │    comprehensive_validation.py        │                    │
 │                        │                                       │                    │
-│                        │  • Confusion Matrix                   │                    │
 │                        │  • Classification Report              │                    │
 │                        │  • Per-Dataset Accuracy               │                    │
 │                        │  • Feature Distribution Analysis      │                    │
@@ -136,7 +136,14 @@ python signal/main_pipline.py --visualize-only    # Only classification viz
 python signal/main_pipline.py --skip-training     # Use existing model
 python signal/main_pipline.py --validation-only   # Validation only
 python signal/main_pipline.py --calibrate-tool grinder  # Calibrate new tool
+python signal/main_pipline.py --classify-csv path/to/features.csv  # Classify pre-extracted features
 ```
+
+### Generalization Dataset
+
+- `signal/01_data_collection/raw/tools_dataset.csv`: pre-extracted feature dataset with labels (multiple tools + walking) used to assess generalization.
+- Run `--classify-csv` to apply threshold rules to this dataset; saves classified CSV, metrics JSON, and visualization (RMS + centroid vs thresholds).
+- Noise stairs recordings exist but are not used in current training/validation.
 
 ### Pipeline Steps:
 
@@ -185,7 +192,7 @@ python signal/main_pipline.py --calibrate-tool grinder  # Calibrate new tool
 │  │                              ▼                                       │    │
 │  │   ┌──────────────────────────────────────────────────────┐          │    │
 │  │   │       calibrate_threshold(on_windows, off_windows)   │          │    │
-│  │   │       → Extract 7 spectral features per window       │          │    │
+│  │   │       → Extract 6 features per window                │          │    │
 │  │   │       → Calculate optimal thresholds                 │          │    │
 │  │   │       → Save to thresholds.json                      │          │    │
 │  │   └──────────────────────────────────────────────────────┘          │    │
@@ -250,21 +257,19 @@ python signal/main_pipline.py --calibrate-tool grinder  # Calibrate new tool
 │   │ • Crest      │           │ • Centroid    │                  │
 │   │   Factor     │           │ • Bandwidth   │                  │
 │   └──────────────┘           │ • Flatness    │                  │
-│                              │ • HF Ratio    │                  │
 │                              │ • Peak Prom.  │                  │
 │                              └───────────────┘                  │
 │                        │                                         │
 │                        ▼                                         │
 │   ┌────────────────────────────────────────────┐                │
-│   │     7 FEATURES PER WINDOW                  │                │
+│   │     6 FEATURES PER WINDOW                  │                │
 │   │                                            │                │
 │   │  1. RMS (Root Mean Square)                 │                │
 │   │  2. Spectral Centroid (Hz)                 │                │
 │   │  3. Spectral Bandwidth (Hz)                │                │
 │   │  4. Spectral Flatness (0-1)                │                │
 │   │  5. Crest Factor (Peak/RMS)                │                │
-│   │  6. HF Energy Ratio (>50Hz / Total)        │                │
-│   │  7. Peak Prominence (max_peak / mean)      │                │
+│   │  6. Peak Prominence (max_peak / mean)      │                │
 │   └────────────────────────────────────────────┘                │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
@@ -276,16 +281,17 @@ python signal/main_pipline.py --calibrate-tool grinder  # Calibrate new tool
 ┌─────────────────────────────────────────────────────────────────┐
 │                     ON/OFF CLASSIFIER                            │
 │                                                                  │
-│   INPUT: 7 Features from window                                 │
+│   INPUT: 6 Features from window                                 │
 │                        │                                         │
 │                        ▼                                         │
 │   ┌────────────────────────────────────────────┐                │
 │   │            THRESHOLD RULES                  │                │
 │   │                                            │                │
-│   │  rms_ok      = RMS > rms_threshold (2.0)   │                │
-│   │  centroid_ok = Centroid > centroid_min (40 Hz)              │
-│   │  hf_ratio_ok = HF_Ratio > hf_ratio_min (0.25)               │
-│   │  flatness_ok = Flatness < flatness_max (0.5)                │
+│   │  rms_ok      = RMS > rms_threshold (3.0)   │                │
+│   │  centroid_ok = Centroid > centroid_min (50 Hz)              │
+│   │  flatness_ok = Flatness < flatness_max (0.4)                │
+│   │  crest_ok    = CrestFactor > 2.5                            │
+│   │  peak_ok     = PeakProm > 3.5                               │
 │   └────────────────────────────────────────────┘                │
 │                        │                                         │
 │                        ▼                                         │
@@ -293,7 +299,6 @@ python signal/main_pipline.py --calibrate-tool grinder  # Calibrate new tool
 │   │           CLASSIFICATION RULE              │                │
 │   │                                            │                │
 │   │  is_active = rms_ok AND centroid_ok        │                │
-│   │              AND hf_ratio_ok               │                │
 │   └────────────────────────────────────────────┘                │
 │                        │                                         │
 │                        ▼                                         │
@@ -313,12 +318,11 @@ python signal/main_pipline.py --calibrate-tool grinder  # Calibrate new tool
 
 ```json
 {
-  "rms_threshold": 2.0,
-  "centroid_min": 40.0,
-  "hf_ratio_min": 0.25,
-  "flatness_max": 0.5,
-  "crest_factor_min": 2.0,
-  "peak_prominence_min": 3.0,
+  "rms_threshold": 3.0,
+  "centroid_min": 50.0,
+  "flatness_max": 0.4,
+  "crest_factor_min": 2.5,
+  "peak_prominence_min": 3.5,
   "consecutive_samples": 5,
   "tool_profiles": {}
 }
