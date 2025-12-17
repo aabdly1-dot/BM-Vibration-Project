@@ -185,16 +185,15 @@ if __name__ == "__main__":
     # Define Base Paths
     script_dir = os.path.dirname(os.path.abspath(__file__))
     # data analysis folder is sibling to 'signal' -> 'BM-Vibration/data analysis'
-    base_analysis_dir = os.path.join(script_dir, '..', '..', '..', 'data analysis')
+    base_analysis_dir = os.path.join(script_dir, '..', '..', '..', 'data_analysis')
     base_analysis_dir = os.path.normpath(base_analysis_dir)
     
     print(f"Scanning directory: {base_analysis_dir}")
     
     # Target specific folders first (19, 20, 22) as requested
     target_folders = [
-        "19. 20251120T140830Z_244730001974_acc_stream", # Sander + Walking
-        "20. 20251120T141210Z_244730001974_acc_stream", # Walking
-        "22. 20251120T141702Z_244730001974_acc_stream"  # Drill
+        "28. PLSH-test(20s)", # PLSH tool
+        "29. PMF-Test1(45s)", # PMF tool
     ]
     
     # Interactive mode or Batch? Let's do the requested batch.
@@ -204,7 +203,7 @@ if __name__ == "__main__":
         process_dataset(base_analysis_dir, folder)
         
     # Ask to process others
-    response = input("\nProcess ALL other folders in 'data analysis'? (y/n): ")
+    response = input("\nProcess ALL other folders in 'data_analysis'? (y/n): ")
     if response.lower() == 'y':
         all_folders = sorted([d for d in os.listdir(base_analysis_dir) if os.path.isdir(os.path.join(base_analysis_dir, d))])
         for folder in all_folders:
